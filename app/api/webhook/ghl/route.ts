@@ -2,8 +2,8 @@ import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 
 const GHLWebhookSchema = z.object({
-  type: z.string(),
-  locationId: z.string(),
+  type: z.string().optional(),
+  locationId: z.string().optional(),
   id: z.string().optional(),
   contactId: z.string().optional(),
 });
