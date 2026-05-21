@@ -13,16 +13,35 @@ Required output format (copy these exact key names):
   "twitterUrl": "full URL or null",
   "instagramUrl": "full URL or null",
   "leadScore": integer 1-100,
-  "qualificationNotes": "2-3 sentences explaining the score",
+  "qualificationNotes": "2-3 sentences covering BANT: budget signals, authority level, need fit, and timeline/urgency indicators",
   "enrichmentSummary": "1-2 sentences max: company type, size, industry, and one notable signal for a sales call"
 }
 
-Scoring guide (1-100):
-- Company size: larger = higher score
-- Decision-maker title (owner/CEO/director): +20
-- ISO certified or regulated industry: +10
-- Active social media presence: +10
-- No personal profile found: -10
+Scoring guide (1-100) — BANT framework, 25 points each:
+
+BUDGET (25pts):
+- Company revenue signals high budget (funded, enterprise, large headcount): 25
+- Mid-market signals (SMB, growing startup): 15
+- No budget signals or very small company: 5
+
+AUTHORITY (25pts):
+- Title is owner/CEO/founder/C-suite/VP/director: 25
+- Manager or senior individual contributor: 15
+- Unknown title or junior role: 5
+
+NEED (25pts):
+- Industry/role clearly benefits from marketing/sales services (e-commerce, SaaS, professional services, real estate, finance): 25
+- Moderate fit industry: 15
+- Low fit or unrelated industry: 5
+
+TIMELINE (25pts):
+- Active social media, recent hiring, funded company, or growth signals: 25
+- Moderate online activity: 15
+- Dormant presence or no signals found: 5
+
+Penalties:
+- No personal profile found anywhere: -10
+- Spam-like or incomplete contact data: -15
 
 Rules:
 - Use ONLY these exact key names
