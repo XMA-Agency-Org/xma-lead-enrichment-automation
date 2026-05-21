@@ -55,8 +55,7 @@ Rules:
 - You MUST use web_search to find information before responding
 - Do maximum 3 web searches, then return the JSON`;
 
-type BetaContentBlock = Awaited<ReturnType<typeof client.beta.messages.create>> extends { content: Array<infer T> } ? T : never;
-type BetaMessageParam = { role: "user" | "assistant"; content: string | BetaContentBlock[] };
+type BetaMessageParam = { role: "user" | "assistant"; content: string | unknown[] };
 
 async function runOldClaude(contact: Parameters<typeof enrichLead>[0]) {
   const parts = ["Enrich this lead:"];
@@ -112,7 +111,7 @@ async function runOldClaude(contact: Parameters<typeof enrichLead>[0]) {
       break;
     }
     if (response.stop_reason === "tool_use") {
-      messages.push({ role: "assistant", content: response.content });
+      messages.push({ role: "assistant", content: response.content as unknown[] });
       continue;
     }
     finalText = allText;

@@ -80,10 +80,10 @@ export async function enrichLead(contact: GHLContact): Promise<EnrichmentResult>
     cache_creation_input_tokens?: number;
   };
 
-  const inputCost = (u.input_tokens / 1_000_000) * 0.80;
-  const outputCost = (u.output_tokens / 1_000_000) * 4.00;
-  const cacheReadCost = ((u.cache_read_input_tokens ?? 0) / 1_000_000) * 0.08;
-  const cacheWriteCost = ((u.cache_creation_input_tokens ?? 0) / 1_000_000) * 1.00;
+  const inputCost = (u.input_tokens / 1_000_000) * 1.00;
+  const outputCost = (u.output_tokens / 1_000_000) * 5.00;
+  const cacheReadCost = ((u.cache_read_input_tokens ?? 0) / 1_000_000) * 0.10;
+  const cacheWriteCost = ((u.cache_creation_input_tokens ?? 0) / 1_000_000) * 1.25;
   const totalCost = inputCost + outputCost + cacheReadCost + cacheWriteCost;
 
   console.log(
