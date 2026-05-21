@@ -20,9 +20,6 @@ export interface GHLContact {
   locationId: string;
   customFields?: Array<{ id: string; value: string }>;
   formFields?: {
-    businessType?: string;
-    biggestChallenge?: string;
-    workedWithAgency?: string;
     monthlyBudget?: string;
     urgencyLevel?: string;
     primaryDecisionMaker?: string;
@@ -42,9 +39,6 @@ export interface EnrichmentResult {
 }
 
 const FORM_FIELD_KEYS: Record<string, keyof NonNullable<GHLContact["formFields"]>> = {
-  which_best_describes_your_business: "businessType",
-  whats_your_biggest_marketing_challenge_right_now: "biggestChallenge",
-  have_you_worked_with_a_marketing_agency_before: "workedWithAgency",
   whats_your_monthly_marketing_budget: "monthlyBudget",
   urgency_level: "urgencyLevel",
   primary_decision_maker: "primaryDecisionMaker",
