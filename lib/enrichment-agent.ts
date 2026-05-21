@@ -156,6 +156,19 @@ function buildPrompt(contact: GHLContact): string {
   if (contact.companyName) parts.push(`Company: ${contact.companyName}`);
   if (contact.website) parts.push(`Website: ${contact.website}`);
 
+  const f = contact.formFields;
+  if (f && Object.keys(f).length > 0) {
+    parts.push("\n--- Self-reported form answers (use these directly for BANT scoring) ---");
+    if (f.businessType) parts.push(`Business type: ${f.businessType}`);
+    if (f.biggestChallenge) parts.push(`Biggest challenge (Need): ${f.biggestChallenge}`);
+    if (f.workedWithAgency) parts.push(`Worked with agency before: ${f.workedWithAgency}`);
+    if (f.monthlyBudget) parts.push(`Monthly marketing budget (Budget): ${f.monthlyBudget}`);
+    if (f.monthlyRevenue) parts.push(`Monthly revenue (Budget signal): ${f.monthlyRevenue}`);
+    if (f.primaryDecisionMaker) parts.push(`Primary decision maker (Authority): ${f.primaryDecisionMaker}`);
+    if (f.urgencyLevel) parts.push(`Urgency level (Timeline): ${f.urgencyLevel}`);
+    parts.push("--- End of form answers ---");
+  }
+
   parts.push("\nSearch for their LinkedIn, Twitter/X, Instagram, and company info. Then return the JSON enrichment object.");
 
   return parts.join("\n");

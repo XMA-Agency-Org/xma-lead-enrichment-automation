@@ -19,6 +19,15 @@ export interface GHLContact {
   website?: string;
   locationId: string;
   customFields?: Array<{ id: string; value: string }>;
+  formFields?: {
+    businessType?: string;
+    biggestChallenge?: string;
+    workedWithAgency?: string;
+    monthlyBudget?: string;
+    urgencyLevel?: string;
+    primaryDecisionMaker?: string;
+    monthlyRevenue?: string;
+  };
 }
 
 export interface EnrichmentResult {
@@ -32,9 +41,59 @@ export interface EnrichmentResult {
   enrichmentSummary?: string;
 }
 
+const FORM_FIELD_KEYS: Record<string, keyof NonNullable<GHLContact["formFields"]>> = {
+  which_best_describes_your_business: "businessType",
+  whats_your_biggest_marketing_challenge_right_now: "biggestChallenge",
+  have_you_worked_with_a_marketing_agency_before: "workedWithAgency",
+  whats_your_monthly_marketing_budget: "monthlyBudget",
+  urgency_level: "urgencyLevel",
+  primary_decision_maker: "primaryDecisionMaker",
+  monthly_revenue: "monthlyRevenue",
+};
+
+const fieldKeyCache = new Map<string, Map<string, string>>();
+
+async function resolveFormFields(
+  locationId: string,
+  customFields: Array<{ id: string; value: string }>
+): Promise<NonNullable<GHLContact["formFields"]>> {
+  if (!fieldKeyCache.has(locationId)) {
+    const { data } = await ghlClient.get(`/locations/${locationId}/customFields`);
+    const map = new Map<string, string>();
+    for (const field of data.customFields ?? []) {
+      if (field.fieldKey && field.id) {
+        const key = (field.fieldKey as string).replace(/^contact\./, "");
+        map.set(field.id, key);
+      }
+    }
+    fieldKeyCache.set(locationId, map);
+    console.log(`[ghl] Loaded ${map.size} custom field definitions for location ${locationId}`);
+  }
+
+  const idToKey = fieldKeyCache.get(locationId)!;
+  const formFields: NonNullable<GHLContact["formFields"]> = {};
+
+  for (const { id, value } of customFields) {
+    const key = idToKey.get(id);
+    if (key && key in FORM_FIELD_KEYS) {
+      const prop = FORM_FIELD_KEYS[key];
+      (formFields as Record<string, string>)[prop] = value;
+    }
+  }
+
+  return formFields;
+}
+
 export async function getContact(contactId: string): Promise<GHLContact> {
   const { data } = await ghlClient.get(`/contacts/${contactId}`);
-  return data.contact;
+  const contact: GHLContact = data.contact;
+
+  if (contact.customFields?.length) {
+    contact.formFields = await resolveFormFields(contact.locationId, contact.customFields);
+    console.log(`[ghl] Resolved form fields:`, JSON.stringify(contact.formFields));
+  }
+
+  return contact;
 }
 
 export async function getContactOpportunityId(contactId: string, locationId: string): Promise<string | null> {
