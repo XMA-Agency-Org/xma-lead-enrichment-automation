@@ -1,9 +1,10 @@
 import Anthropic from "@anthropic-ai/sdk";
 import type { GHLContact, EnrichmentResult } from "./ghl";
+import { researchContact, formatExaResults } from "./exa";
 
 const client = new Anthropic();
 
-const SYSTEM_PROMPT_TEXT = `You are a B2B lead enrichment specialist. Research the given contact and company using web search, then respond with ONLY a single flat JSON object — no nested objects, no markdown, no explanation outside the JSON.
+const SYSTEM_PROMPT_TEXT = `You are a B2B lead enrichment specialist. You will be given contact information and web research data already gathered for you. Analyze it and respond with ONLY a single flat JSON object — no nested objects, no markdown, no explanation outside the JSON.
 
 Required output format (copy these exact key names):
 {
@@ -48,95 +49,52 @@ Rules:
 - Never nest objects inside the response
 - Never fabricate URLs — use null if not found
 - Output raw JSON only, nothing else
-- You MUST use web_search to find information before responding
-- Do maximum 3 web searches, then return the JSON`;
-
-type BetaMessage = Awaited<ReturnType<(typeof client.beta.messages)["create"]>> extends infer R
-  ? R extends { content: unknown[] } ? R : never
-  : never;
-type BetaContentBlock = BetaMessage["content"][number];
-type BetaMessageParam = { role: "user" | "assistant"; content: string | BetaContentBlock[] };
+- Base your answer on the research data provided`;
 
 export async function enrichLead(contact: GHLContact): Promise<EnrichmentResult> {
   console.log(`[enrich] Starting enrichment for contact: ${contact.id} (${contact.firstName} ${contact.lastName} <${contact.email}>)`);
 
-  const userPrompt = buildPrompt(contact);
+  const exaData = await researchContact(contact);
+  const researchContext = formatExaResults(exaData);
+
+  const userPrompt = buildPrompt(contact, researchContext);
   console.log(`[enrich] Prompt:\n${userPrompt}`);
 
-  const messages: BetaMessageParam[] = [
-    { role: "user", content: userPrompt },
-  ];
+  const response = await client.messages.create({
+    model: "claude-haiku-4-5-20251001",
+    max_tokens: 1024,
+    system: [
+      {
+        type: "text",
+        text: SYSTEM_PROMPT_TEXT,
+        cache_control: { type: "ephemeral" },
+      },
+    ] as never,
+    messages: [{ role: "user", content: userPrompt }],
+  });
 
-  let finalText = "";
-  let turns = 0;
-  const MAX_TURNS = 5;
+  const u = response.usage as {
+    input_tokens: number;
+    output_tokens: number;
+    cache_read_input_tokens?: number;
+    cache_creation_input_tokens?: number;
+  };
 
-  let totalInputTokens = 0;
-  let totalOutputTokens = 0;
-  let totalCacheReadTokens = 0;
-  let totalCacheWriteTokens = 0;
-
-  while (turns < MAX_TURNS) {
-    turns++;
-
-    const response = await client.beta.messages.create({
-      model: "claude-haiku-4-5-20251001",
-      max_tokens: 1024,
-      system: [
-        {
-          type: "text",
-          text: SYSTEM_PROMPT_TEXT,
-          cache_control: { type: "ephemeral" },
-        },
-      ],
-      tools: [{ type: "web_search_20250305", name: "web_search" }] as never,
-      tool_choice: turns === 1 ? ({ type: "any" } as never) : ({ type: "auto" } as never),
-      messages: messages as never,
-      betas: ["web-search-2025-03-05"],
-    });
-
-    const u = response.usage as {
-      input_tokens: number;
-      output_tokens: number;
-      cache_read_input_tokens?: number;
-      cache_creation_input_tokens?: number;
-    };
-    totalInputTokens += u.input_tokens;
-    totalOutputTokens += u.output_tokens;
-    totalCacheReadTokens += u.cache_read_input_tokens ?? 0;
-    totalCacheWriteTokens += u.cache_creation_input_tokens ?? 0;
-    console.log(`[agent] turn ${turns}, stop_reason: ${response.stop_reason}, content_blocks: ${response.content.map((b) => b.type).join(",")}, usage: input=${u.input_tokens} output=${u.output_tokens} cache_read=${u.cache_read_input_tokens ?? 0} cache_write=${u.cache_creation_input_tokens ?? 0}`);
-
-    const allText = response.content
-      .filter((b) => b.type === "text")
-      .map((b) => (b as { type: "text"; text: string }).text)
-      .join("\n");
-
-    if (response.stop_reason === "end_turn") {
-      finalText = allText;
-      break;
-    }
-
-    if (response.stop_reason === "tool_use") {
-      messages.push({ role: "assistant", content: response.content });
-      continue;
-    }
-
-    finalText = allText;
-    break;
-  }
-
-  // Haiku 4.5 pricing: $0.80/M input, $4/M output, $0.08/M cache_read, $1/M cache_write
-  const inputCost = (totalInputTokens / 1_000_000) * 0.80;
-  const outputCost = (totalOutputTokens / 1_000_000) * 4.00;
-  const cacheReadCost = (totalCacheReadTokens / 1_000_000) * 0.08;
-  const cacheWriteCost = (totalCacheWriteTokens / 1_000_000) * 1.00;
+  const inputCost = (u.input_tokens / 1_000_000) * 0.80;
+  const outputCost = (u.output_tokens / 1_000_000) * 4.00;
+  const cacheReadCost = ((u.cache_read_input_tokens ?? 0) / 1_000_000) * 0.08;
+  const cacheWriteCost = ((u.cache_creation_input_tokens ?? 0) / 1_000_000) * 1.00;
   const totalCost = inputCost + outputCost + cacheReadCost + cacheWriteCost;
 
   console.log(
-    `[enrich] tokens: input=${totalInputTokens} output=${totalOutputTokens} cache_read=${totalCacheReadTokens} cache_write=${totalCacheWriteTokens} | ` +
-    `cost: $${totalCost.toFixed(6)} (input=$${inputCost.toFixed(6)} output=$${outputCost.toFixed(6)} cache_read=$${cacheReadCost.toFixed(6)} cache_write=$${cacheWriteCost.toFixed(6)})`
+    `[enrich] tokens: input=${u.input_tokens} output=${u.output_tokens} cache_read=${u.cache_read_input_tokens ?? 0} cache_write=${u.cache_creation_input_tokens ?? 0} | ` +
+    `cost: $${totalCost.toFixed(6)}`
   );
+
+  const finalText = response.content
+    .filter((b) => b.type === "text")
+    .map((b) => (b as { type: "text"; text: string }).text)
+    .join("\n");
 
   console.log(`[enrich] Raw agent response:\n${finalText}`);
   const result = parseAgentResponse(finalText);
@@ -145,7 +103,7 @@ export async function enrichLead(contact: GHLContact): Promise<EnrichmentResult>
   return result;
 }
 
-function buildPrompt(contact: GHLContact): string {
+function buildPrompt(contact: GHLContact, researchContext: string): string {
   const parts = ["Enrich this lead:"];
 
   if (contact.firstName || contact.lastName) {
@@ -166,7 +124,10 @@ function buildPrompt(contact: GHLContact): string {
     parts.push("--- End of form answers ---");
   }
 
-  parts.push("\nSearch for their LinkedIn, Twitter/X, Instagram, and company info. Then return the JSON enrichment object.");
+  parts.push("\n--- Web Research (from Exa) ---");
+  parts.push(researchContext);
+  parts.push("--- End of research ---");
+  parts.push("\nReturn the JSON enrichment object based on the research above.");
 
   return parts.join("\n");
 }

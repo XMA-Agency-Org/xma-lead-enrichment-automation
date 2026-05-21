@@ -23,7 +23,8 @@ GHL Webhook → POST /api/webhook/ghl
 
 ## Key Files
 - `lib/ghl.ts` — GHL API client (get contact, update custom fields)
-- `lib/enrichment-agent.ts` — Managed agent orchestration (create/reuse agent + environment, run session, parse response)
+- `lib/exa.ts` — Exa search client (people + company deep search, result formatting)
+- `lib/enrichment-agent.ts` — Enrichment orchestration (Exa research → single Claude call → parse JSON)
 - `app/api/webhook/ghl/route.ts` — GHL webhook receiver, returns 200 immediately
 - `app/api/enrich/route.ts` — Actual enrichment runner, `maxDuration = 300`
 
@@ -31,8 +32,7 @@ GHL Webhook → POST /api/webhook/ghl
 | Variable | Description |
 |---|---|
 | `ANTHROPIC_API_KEY` | Anthropic API key |
-| `ANTHROPIC_AGENT_ID` | Reusable agent ID (logged on first run) |
-| `ANTHROPIC_ENVIRONMENT_ID` | Reusable environment ID (logged on first run) |
+| `EXA_API_KEY` | Exa API key for web research (people + company search) |
 | `GHL_API_KEY` | GHL Private Integration token |
 | `GHL_WEBHOOK_SECRET` | Optional webhook signature verification |
 | `INTERNAL_SECRET` | Shared secret between webhook and enrich endpoints |
@@ -45,8 +45,6 @@ GHL Webhook → POST /api/webhook/ghl
    - Events: Contact Created, Contact Updated
 3. Create custom fields on contacts: company_size, industry, linkedin_url, twitter_url, instagram_url, lead_score, qualification_notes, enrichment_summary
 
-## Agent ID Reuse
-On first run, the agent and environment are created and IDs logged. Set them as env vars to avoid recreating on every cold start.
 
 ## Vercel Deployment
 - `maxDuration = 300` on enrich endpoint (requires Pro plan for full 300s)
