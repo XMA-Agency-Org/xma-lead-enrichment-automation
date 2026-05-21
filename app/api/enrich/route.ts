@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getContact, updateContactFields } from "@/lib/ghl";
+import { getContact, updateContactFields, createEnrichmentNote } from "@/lib/ghl";
 import { enrichLead } from "@/lib/enrichment-agent";
 
 export const maxDuration = 300;
@@ -20,7 +20,11 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
 
   const contact = await getContact(contactId);
   const enrichment = await enrichLead(contact);
-  await updateContactFields(contactId, enrichment);
+
+  await Promise.all([
+    updateContactFields(contactId, enrichment),
+    createEnrichmentNote(contactId, contact.locationId, enrichment),
+  ]);
 
   console.log(`Enriched contact ${contactId}:`, enrichment);
 
