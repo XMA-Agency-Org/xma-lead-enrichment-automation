@@ -143,6 +143,14 @@ export async function updateContactFields(
   await ghlClient.put(`/contacts/${contactId}`, { customFields });
 }
 
+export async function createDeepResearchNote(
+  contactId: string,
+  reportHtml: string
+): Promise<void> {
+  await ghlClient.post(`/contacts/${contactId}/notes`, { body: reportHtml });
+  console.log(`[ghl] Deep research note created for contact: ${contactId}`);
+}
+
 export async function createEnrichmentNote(
   contactId: string,
   locationId: string,

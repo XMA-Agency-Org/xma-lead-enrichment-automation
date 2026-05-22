@@ -38,16 +38,18 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
   }
 
   const baseUrl = process.env.NEXT_PUBLIC_BASE_URL ?? `https://${req.headers.get("host")}`;
-  const enrichUrl = `${baseUrl}/api/enrich`;
-  console.log("[webhook/ghl] Firing enrich request to:", enrichUrl);
+  const headers = { "Content-Type": "application/json", "x-internal-secret": process.env.INTERNAL_SECRET ?? "" };
+  const payload = JSON.stringify({ contactId });
 
-  fetch(enrichUrl, {
-    method: "POST",
-    headers: { "Content-Type": "application/json", "x-internal-secret": process.env.INTERNAL_SECRET ?? "" },
-    body: JSON.stringify({ contactId }),
-  })
+  console.log("[webhook/ghl] Firing enrich + deep-research to:", baseUrl);
+
+  fetch(`${baseUrl}/api/enrich`, { method: "POST", headers, body: payload })
     .then((res) => console.log("[webhook/ghl] Enrich response status:", res.status))
     .catch((err) => console.error("[webhook/ghl] Failed to trigger enrichment:", err));
+
+  fetch(`${baseUrl}/api/deep-research`, { method: "POST", headers, body: payload })
+    .then((res) => console.log("[webhook/ghl] Deep-research response status:", res.status))
+    .catch((err) => console.error("[webhook/ghl] Failed to trigger deep research:", err));
 
   console.log("[webhook/ghl] Returning 200 immediately");
   return NextResponse.json({ received: true, contactId });
