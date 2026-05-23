@@ -43,5 +43,25 @@ export async function runContactPipeline(contactId: string): Promise<PipelineRes
 
   console.log(`[pipeline] Done — contact ${contactId} | enrichment: ${enrichment ? "ok" : "failed"} | deep-research: ${deepOk ? "ok" : "failed"}`);
 
+  const automationWebhookUrl = process.env.GHL_AUTOMATION_WEBHOOK_URL;
+  if (automationWebhookUrl && enrichment) {
+    const payload = {
+      contactId,
+      firstName: contact.firstName ?? "",
+      lastName: contact.lastName ?? "",
+      email: contact.email ?? "",
+      phone: contact.phone ?? "",
+      companyName: contact.companyName ?? "",
+      ...enrichment,
+    };
+    fetch(automationWebhookUrl, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    })
+      .then(() => console.log("[pipeline] Automation webhook fired"))
+      .catch((err) => console.error("[pipeline] Automation webhook failed:", err));
+  }
+
   return { contactId, enrichment, deepResearch: { ok: deepOk } };
 }
