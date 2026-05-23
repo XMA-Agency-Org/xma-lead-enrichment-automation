@@ -1,6 +1,7 @@
 import Exa from "exa-js";
 import Anthropic from "@anthropic-ai/sdk";
 import type { GHLContact } from "./ghl";
+import { extractJSON } from "./claude-parse";
 
 const exa = new Exa(process.env.EXA_API_KEY!);
 const anthropic = new Anthropic();
@@ -221,8 +222,8 @@ interface ParsedReport {
 }
 
 function parseReport(text: string, name: string, company: string): ParsedReport {
-  const jsonMatch = text.match(/\{[\s\S]*\}/);
-  if (!jsonMatch) {
+  const p = extractJSON<Record<string, unknown>>(text);
+  if (!p) {
     return {
       companySnapshot: `${company} — no structured data available.`,
       personSnapshot: `${name} — no structured data available.`,
@@ -230,24 +231,13 @@ function parseReport(text: string, name: string, company: string): ParsedReport 
       keyFindings: ["Research data was insufficient to generate findings."],
     };
   }
-
-  try {
-    const p = JSON.parse(jsonMatch[0]);
-    return {
-      companySnapshot: p.companySnapshot ?? "",
-      personSnapshot: p.personSnapshot ?? "",
-      buyingSignals: Array.isArray(p.buyingSignals) ? p.buyingSignals : [],
-      keyFindings: Array.isArray(p.keyFindings) ? p.keyFindings : [],
-      callAngle: p.callAngle ?? undefined,
-    };
-  } catch {
-    return {
-      companySnapshot: `${company}`,
-      personSnapshot: `${name}`,
-      buyingSignals: [],
-      keyFindings: [text.slice(0, 300)],
-    };
-  }
+  return {
+    companySnapshot: p.companySnapshot as string ?? "",
+    personSnapshot: p.personSnapshot as string ?? "",
+    buyingSignals: Array.isArray(p.buyingSignals) ? p.buyingSignals as string[] : [],
+    keyFindings: Array.isArray(p.keyFindings) ? p.keyFindings as string[] : [],
+    callAngle: p.callAngle as string ?? undefined,
+  };
 }
 
 function buildReportHtml(name: string, company: string, report: ParsedReport): string {

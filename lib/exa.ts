@@ -17,17 +17,72 @@ export interface ExaResearchData {
   websiteSocialLinks: string[];
 }
 
-export async function researchContact(contact: GHLContact): Promise<ExaResearchData> {
-  const personQuery = buildPersonQuery(contact);
-  const companyQuery = buildCompanyQuery(contact);
-  const socialQuery = buildSocialQuery(contact);
+export interface ExaQueries {
+  person: string;
+  company: string | null;
+  social: string | null;
+}
 
-  console.log(`[exa] Person query: "${personQuery}"`);
-  console.log(`[exa] Company query: "${companyQuery}"`);
-  console.log(`[exa] Social query: "${socialQuery}"`);
+export function extractDomain(email: string): string | null {
+  const match = email.match(/@(.+)$/);
+  return match ? match[1] : null;
+}
 
+export function isGenericDomain(domain: string): boolean {
+  return /^(gmail|yahoo|hotmail|outlook|icloud|protonmail|me|mac|live|msn)\./i.test(domain);
+}
+
+export function inferRegion(phone?: string): string | null {
+  if (!phone) return null;
+  if (phone.startsWith("+971")) return "UAE";
+  if (phone.startsWith("+966")) return "Saudi Arabia";
+  if (phone.startsWith("+965")) return "Kuwait";
+  if (phone.startsWith("+20")) return "Egypt";
+  if (phone.startsWith("+44")) return "UK";
+  if (phone.startsWith("+1")) return null;
+  return null;
+}
+
+export function buildPersonQuery(contact: GHLContact): string {
+  const name = [contact.firstName, contact.lastName].filter(Boolean).join(" ");
+  const parts = [name];
+  if (contact.companyName) parts.push(`at ${contact.companyName}`);
+  const emailDomain = contact.email ? extractDomain(contact.email) : null;
+  if (emailDomain) parts.push(emailDomain);
+  const region = inferRegion(contact.phone);
+  if (region) parts.push(region);
+  return parts.join(" ");
+}
+
+export function buildCompanyQuery(contact: GHLContact): string | null {
+  const emailDomain = contact.email ? extractDomain(contact.email) : null;
+  if (emailDomain && !isGenericDomain(emailDomain)) return emailDomain;
+  if (contact.website) return contact.website;
+  if (contact.companyName) {
+    const region = inferRegion(contact.phone);
+    return region ? `${contact.companyName} ${region}` : contact.companyName;
+  }
+  return null;
+}
+
+export function buildSocialQuery(contact: GHLContact): string | null {
+  const emailDomain = contact.email ? extractDomain(contact.email) : null;
+  if (emailDomain && !isGenericDomain(emailDomain)) return emailDomain;
+  if (contact.companyName) return contact.companyName;
+  return null;
+}
+
+export function buildQueries(contact: GHLContact): ExaQueries {
+  return {
+    person: buildPersonQuery(contact),
+    company: buildCompanyQuery(contact),
+    social: buildSocialQuery(contact),
+  };
+}
+
+export async function executeSearches(queries: ExaQueries): Promise<Pick<ExaResearchData, "personResults" | "companyResults" | "socialResults">> {
   const [personSearch, companySearch, socialSearch] = await Promise.all([
-    exa.search(personQuery, {
+    exa.search(queries.person, {
       type: "deep",
       numResults: 5,
       category: "people",
@@ -37,8 +92,8 @@ export async function researchContact(contact: GHLContact): Promise<ExaResearchD
       return { results: [] };
     }),
 
-    companyQuery
-      ? exa.search(companyQuery, {
+    queries.company
+      ? exa.search(queries.company, {
           type: "deep",
           numResults: 5,
           category: "company",
@@ -49,8 +104,8 @@ export async function researchContact(contact: GHLContact): Promise<ExaResearchD
         })
       : Promise.resolve({ results: [] }),
 
-    socialQuery
-      ? exa.search(socialQuery, {
+    queries.social
+      ? exa.search(queries.social, {
           type: "auto",
           numResults: 5,
           includeDomains: ["instagram.com", "twitter.com", "x.com", "facebook.com"],
@@ -71,29 +126,34 @@ export async function researchContact(contact: GHLContact): Promise<ExaResearchD
       ),
     }));
 
-  const personResults = mapResults(personSearch.results);
-  const companyResults = mapResults(companySearch.results);
-  const socialResults = mapResults(socialSearch.results).map((r) => ({
-    ...r,
-    profileUrl: extractSocialProfileUrl(r.url),
-  }));
-
-  const websiteSocialLinks = await scrapeWebsiteSocialLinks(contact);
-
-  console.log(`[exa] Person results: ${personResults.length}, Company results: ${companyResults.length}, Social results: ${socialResults.length}, Website social links: ${websiteSocialLinks.length}`);
-
-  return { personResults, companyResults, socialResults, websiteSocialLinks };
+  return {
+    personResults: mapResults(personSearch.results),
+    companyResults: mapResults(companySearch.results),
+    socialResults: mapResults(socialSearch.results).map((r) => ({
+      ...r,
+      profileUrl: extractSocialProfileUrl(r.url),
+    })),
+  };
 }
 
-function buildPersonQuery(contact: GHLContact): string {
-  const name = [contact.firstName, contact.lastName].filter(Boolean).join(" ");
-  const parts = [name];
-  if (contact.companyName) parts.push(`at ${contact.companyName}`);
-  const emailDomain = contact.email ? extractDomain(contact.email) : null;
-  if (emailDomain) parts.push(emailDomain);
-  const region = inferRegion(contact.phone);
-  if (region) parts.push(region);
-  return parts.join(" ");
+export async function researchContact(contact: GHLContact): Promise<ExaResearchData> {
+  const queries = buildQueries(contact);
+
+  console.log(`[exa] Person query: "${queries.person}"`);
+  console.log(`[exa] Company query: "${queries.company}"`);
+  console.log(`[exa] Social query: "${queries.social}"`);
+
+  const [searches, websiteSocialLinks] = await Promise.all([
+    executeSearches(queries),
+    scrapeWebsiteSocialLinks(contact),
+  ]);
+
+  console.log(
+    `[exa] Person results: ${searches.personResults.length}, Company results: ${searches.companyResults.length}, ` +
+    `Social results: ${searches.socialResults.length}, Website social links: ${websiteSocialLinks.length}`
+  );
+
+  return { ...searches, websiteSocialLinks };
 }
 
 async function scrapeWebsiteSocialLinks(contact: GHLContact): Promise<string[]> {
@@ -128,50 +188,11 @@ function extractSocialProfileUrl(url: string): string | undefined {
     const u = new URL(url);
     const host = u.hostname.replace(/^www\./, "");
     const segments = u.pathname.split("/").filter(Boolean);
-
     if ((host === "instagram.com" || host === "x.com" || host === "twitter.com" || host === "facebook.com") && segments.length >= 1) {
       return `https://${host}/${segments[0]}`;
     }
   } catch {}
   return undefined;
-}
-
-function buildSocialQuery(contact: GHLContact): string | null {
-  const emailDomain = contact.email ? extractDomain(contact.email) : null;
-  if (emailDomain && !isGenericDomain(emailDomain)) return emailDomain;
-  if (contact.companyName) return contact.companyName;
-  return null;
-}
-
-function buildCompanyQuery(contact: GHLContact): string | null {
-  const emailDomain = contact.email ? extractDomain(contact.email) : null;
-  if (emailDomain && !isGenericDomain(emailDomain)) return emailDomain;
-  if (contact.website) return contact.website;
-  if (contact.companyName) {
-    const region = inferRegion(contact.phone);
-    return region ? `${contact.companyName} ${region}` : contact.companyName;
-  }
-  return null;
-}
-
-function extractDomain(email: string): string | null {
-  const match = email.match(/@(.+)$/);
-  return match ? match[1] : null;
-}
-
-function isGenericDomain(domain: string): boolean {
-  return /^(gmail|yahoo|hotmail|outlook|icloud|protonmail|me|mac|live|msn)\./i.test(domain);
-}
-
-function inferRegion(phone?: string): string | null {
-  if (!phone) return null;
-  if (phone.startsWith("+971")) return "UAE";
-  if (phone.startsWith("+966")) return "Saudi Arabia";
-  if (phone.startsWith("+965")) return "Kuwait";
-  if (phone.startsWith("+20")) return "Egypt";
-  if (phone.startsWith("+44")) return "UK";
-  if (phone.startsWith("+1")) return null;
-  return null;
 }
 
 export function formatExaResults(data: ExaResearchData): string {
@@ -223,9 +244,7 @@ export function formatExaResults(data: ExaResearchData): string {
     }
   }
 
-  if (lines.length === 0) {
-    lines.push("No external research data found.");
-  }
+  if (lines.length === 0) lines.push("No external research data found.");
 
   return lines.join("\n");
 }

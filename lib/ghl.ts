@@ -1,7 +1,33 @@
-import axios from "axios";
+import axios, { AxiosError } from "axios";
+
+export class GHLError extends Error {
+  constructor(
+    public code: "NOT_FOUND" | "WRITE_FAILED" | "FIELD_MISMATCH" | "TIMEOUT" | "UNKNOWN",
+    message: string,
+    public cause?: unknown
+  ) {
+    super(message);
+    this.name = "GHLError";
+  }
+}
+
+function toGHLError(err: unknown, context: string): GHLError {
+  const axErr = err as AxiosError;
+  if (axErr.code === "ECONNABORTED" || axErr.code === "ETIMEDOUT") {
+    return new GHLError("TIMEOUT", `${context}: request timed out`, err);
+  }
+  if (axErr.response?.status === 404) {
+    return new GHLError("NOT_FOUND", `${context}: 404 not found`, err);
+  }
+  if (axErr.response?.status && axErr.response.status >= 400) {
+    return new GHLError("WRITE_FAILED", `${context}: HTTP ${axErr.response.status}`, err);
+  }
+  return new GHLError("UNKNOWN", `${context}: ${(err as Error).message}`, err);
+}
 
 const ghlClient = axios.create({
   baseURL: "https://services.leadconnectorhq.com",
+  timeout: 15_000,
   headers: {
     Authorization: `Bearer ${process.env.GHL_API_KEY}`,
     Version: "2021-07-28",
@@ -45,26 +71,84 @@ const FORM_FIELD_KEYS: Record<string, keyof NonNullable<GHLContact["formFields"]
   monthly_revenue: "monthlyRevenue",
 };
 
-const fieldKeyCache = new Map<string, Map<string, string>>();
+const FIELD_IDS = {
+  companySize: "r8L7vWokMMK2YSCgIyGI",
+  industry: "4SXJuIroSxzlyeIUxoW4",
+  linkedInUrl: "1H1khVsKBEJL8I9UfDGu",
+  twitterUrl: "2frMMLIVrT2vfslsjp2o",
+  instagramUrl: "bGLi05U3XUSxLxHmBnD1",
+  leadScore: "MLQ2av6LeYgdjUmLN2gI",
+  qualificationNotes: "RcP4I0UAtOC2BN1d1jbZ",
+  enrichmentSummary: "ofM65PVMv6RHMPSAGa1J",
+};
+
+const CACHE_TTL_MS = 5 * 60 * 1000;
+
+interface CacheEntry {
+  fields: Map<string, string>;
+  expiresAt: number;
+}
+
+const fieldKeyCache = new Map<string, CacheEntry>();
+const validatedLocations = new Set<string>();
+
+export function flushFieldCache(locationId?: string): void {
+  if (locationId) {
+    fieldKeyCache.delete(locationId);
+    validatedLocations.delete(locationId);
+  } else {
+    fieldKeyCache.clear();
+    validatedLocations.clear();
+  }
+}
+
+async function fetchFieldMap(locationId: string): Promise<Map<string, string>> {
+  const { data } = await ghlClient.get(`/locations/${locationId}/customFields`);
+  const map = new Map<string, string>();
+  for (const field of data.customFields ?? []) {
+    if (field.fieldKey && field.id) {
+      const key = (field.fieldKey as string).replace(/^contact\./, "");
+      map.set(field.id, key);
+    }
+  }
+  console.log(`[ghl] Loaded ${map.size} custom field definitions for location ${locationId}`);
+  return map;
+}
+
+async function getFieldMap(locationId: string): Promise<Map<string, string>> {
+  const cached = fieldKeyCache.get(locationId);
+  if (cached && cached.expiresAt > Date.now()) return cached.fields;
+
+  const fields = await fetchFieldMap(locationId);
+  fieldKeyCache.set(locationId, { fields, expiresAt: Date.now() + CACHE_TTL_MS });
+  return fields;
+}
+
+async function validateFieldIds(locationId: string): Promise<void> {
+  if (validatedLocations.has(locationId)) return;
+
+  const fieldMap = await getFieldMap(locationId);
+  const allIds = new Set(fieldMap.keys());
+  const missing = Object.entries(FIELD_IDS)
+    .filter(([, id]) => !allIds.has(id))
+    .map(([name, id]) => `${name}=${id}`);
+
+  if (missing.length > 0) {
+    throw new GHLError(
+      "FIELD_MISMATCH",
+      `FIELD_IDS not found in GHL location ${locationId}: ${missing.join(", ")}`
+    );
+  }
+
+  validatedLocations.add(locationId);
+  console.log(`[ghl] Field ID validation passed for location ${locationId}`);
+}
 
 async function resolveFormFields(
   locationId: string,
   customFields: Array<{ id: string; value: string }>
 ): Promise<NonNullable<GHLContact["formFields"]>> {
-  if (!fieldKeyCache.has(locationId)) {
-    const { data } = await ghlClient.get(`/locations/${locationId}/customFields`);
-    const map = new Map<string, string>();
-    for (const field of data.customFields ?? []) {
-      if (field.fieldKey && field.id) {
-        const key = (field.fieldKey as string).replace(/^contact\./, "");
-        map.set(field.id, key);
-      }
-    }
-    fieldKeyCache.set(locationId, map);
-    console.log(`[ghl] Loaded ${map.size} custom field definitions for location ${locationId}`);
-  }
-
-  const idToKey = fieldKeyCache.get(locationId)!;
+  const idToKey = await getFieldMap(locationId);
   const formFields: NonNullable<GHLContact["formFields"]> = {};
 
   for (const { id, value } of customFields) {
@@ -79,76 +163,65 @@ async function resolveFormFields(
 }
 
 export async function getContact(contactId: string): Promise<GHLContact> {
-  const { data } = await ghlClient.get(`/contacts/${contactId}`);
-  const contact: GHLContact = data.contact;
+  try {
+    const { data } = await ghlClient.get(`/contacts/${contactId}`);
+    const contact: GHLContact = data.contact;
 
-  if (contact.customFields?.length) {
-    contact.formFields = await resolveFormFields(contact.locationId, contact.customFields);
-    console.log(`[ghl] Resolved form fields:`, JSON.stringify(contact.formFields));
+    if (contact.customFields?.length) {
+      contact.formFields = await resolveFormFields(contact.locationId, contact.customFields);
+      console.log(`[ghl] Resolved form fields:`, JSON.stringify(contact.formFields));
+    }
+
+    return contact;
+  } catch (err) {
+    throw toGHLError(err, `getContact(${contactId})`);
   }
-
-  return contact;
 }
 
 export async function getContactOpportunityId(contactId: string, locationId: string): Promise<string | null> {
-  const { data } = await ghlClient.get(`/opportunities/search`, {
-    params: { contact_id: contactId, location_id: locationId },
-  });
-  return data.opportunities?.[0]?.id ?? null;
+  try {
+    const { data } = await ghlClient.get(`/opportunities/search`, {
+      params: { contact_id: contactId, location_id: locationId },
+    });
+    return data.opportunities?.[0]?.id ?? null;
+  } catch (err) {
+    throw toGHLError(err, `getContactOpportunityId(${contactId})`);
+  }
 }
-
-const FIELD_IDS = {
-  companySize: "r8L7vWokMMK2YSCgIyGI",
-  industry: "4SXJuIroSxzlyeIUxoW4",
-  linkedInUrl: "1H1khVsKBEJL8I9UfDGu",
-  twitterUrl: "2frMMLIVrT2vfslsjp2o",
-  instagramUrl: "bGLi05U3XUSxLxHmBnD1",
-  leadScore: "MLQ2av6LeYgdjUmLN2gI",
-  qualificationNotes: "RcP4I0UAtOC2BN1d1jbZ",
-  enrichmentSummary: "ofM65PVMv6RHMPSAGa1J",
-};
 
 export async function updateContactFields(
   contactId: string,
-  enrichment: EnrichmentResult
+  enrichment: EnrichmentResult,
+  locationId: string
 ): Promise<void> {
+  await validateFieldIds(locationId);
+
   const customFields: Array<{ id: string; field_value: string }> = [];
 
-  if (enrichment.companySize) {
-    customFields.push({ id: FIELD_IDS.companySize, field_value: enrichment.companySize });
-  }
-  if (enrichment.industry) {
-    customFields.push({ id: FIELD_IDS.industry, field_value: enrichment.industry });
-  }
-  if (enrichment.linkedInUrl) {
-    customFields.push({ id: FIELD_IDS.linkedInUrl, field_value: enrichment.linkedInUrl });
-  }
-  if (enrichment.twitterUrl) {
-    customFields.push({ id: FIELD_IDS.twitterUrl, field_value: enrichment.twitterUrl });
-  }
-  if (enrichment.instagramUrl) {
-    customFields.push({ id: FIELD_IDS.instagramUrl, field_value: enrichment.instagramUrl });
-  }
-  if (enrichment.leadScore !== undefined) {
-    customFields.push({ id: FIELD_IDS.leadScore, field_value: enrichment.leadScore.toString() });
-  }
-  if (enrichment.qualificationNotes) {
-    customFields.push({ id: FIELD_IDS.qualificationNotes, field_value: enrichment.qualificationNotes });
-  }
-  if (enrichment.enrichmentSummary) {
-    customFields.push({ id: FIELD_IDS.enrichmentSummary, field_value: enrichment.enrichmentSummary });
-  }
+  if (enrichment.companySize) customFields.push({ id: FIELD_IDS.companySize, field_value: enrichment.companySize });
+  if (enrichment.industry) customFields.push({ id: FIELD_IDS.industry, field_value: enrichment.industry });
+  if (enrichment.linkedInUrl) customFields.push({ id: FIELD_IDS.linkedInUrl, field_value: enrichment.linkedInUrl });
+  if (enrichment.twitterUrl) customFields.push({ id: FIELD_IDS.twitterUrl, field_value: enrichment.twitterUrl });
+  if (enrichment.instagramUrl) customFields.push({ id: FIELD_IDS.instagramUrl, field_value: enrichment.instagramUrl });
+  if (enrichment.leadScore !== undefined) customFields.push({ id: FIELD_IDS.leadScore, field_value: enrichment.leadScore.toString() });
+  if (enrichment.qualificationNotes) customFields.push({ id: FIELD_IDS.qualificationNotes, field_value: enrichment.qualificationNotes });
+  if (enrichment.enrichmentSummary) customFields.push({ id: FIELD_IDS.enrichmentSummary, field_value: enrichment.enrichmentSummary });
 
   console.log(`[ghl] Updating ${customFields.length} custom fields for contact ${contactId}`);
-  await ghlClient.put(`/contacts/${contactId}`, { customFields });
+  try {
+    await ghlClient.put(`/contacts/${contactId}`, { customFields });
+  } catch (err) {
+    throw toGHLError(err, `updateContactFields(${contactId})`);
+  }
 }
 
-export async function createDeepResearchNote(
-  contactId: string,
-  reportHtml: string
-): Promise<void> {
-  await ghlClient.post(`/contacts/${contactId}/notes`, { body: reportHtml });
-  console.log(`[ghl] Deep research note created for contact: ${contactId}`);
+export async function createDeepResearchNote(contactId: string, reportHtml: string): Promise<void> {
+  try {
+    await ghlClient.post(`/contacts/${contactId}/notes`, { body: reportHtml });
+    console.log(`[ghl] Deep research note created for contact: ${contactId}`);
+  } catch (err) {
+    throw toGHLError(err, `createDeepResearchNote(${contactId})`);
+  }
 }
 
 export async function createEnrichmentNote(
@@ -171,8 +244,12 @@ export async function createEnrichmentNote(
 
   const body = buildNoteHtml(enrichment);
 
-  await ghlClient.post(`/contacts/${contactId}/notes`, { body, relations });
-  console.log(`[ghl] Enrichment note created for contact: ${contactId}`);
+  try {
+    await ghlClient.post(`/contacts/${contactId}/notes`, { body, relations });
+    console.log(`[ghl] Enrichment note created for contact: ${contactId}`);
+  } catch (err) {
+    throw toGHLError(err, `createEnrichmentNote(${contactId})`);
+  }
 }
 
 function buildNoteHtml(enrichment: EnrichmentResult): string {

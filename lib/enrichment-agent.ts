@@ -1,6 +1,7 @@
 import Anthropic from "@anthropic-ai/sdk";
 import type { GHLContact, EnrichmentResult } from "./ghl";
 import { researchContact, formatExaResults } from "./exa";
+import { extractJSON } from "./claude-parse";
 
 const client = new Anthropic();
 
@@ -133,29 +134,19 @@ function buildPrompt(contact: GHLContact, researchContext: string): string {
 }
 
 export function parseAgentResponse(text: string): EnrichmentResult {
-  const jsonMatch = text.match(/\{[\s\S]*\}/);
-  if (!jsonMatch) {
+  const parsed = extractJSON<Record<string, unknown>>(text);
+  if (!parsed) {
     console.log(`[enrich] No JSON found in agent response`);
-    return {
-      enrichmentSummary: text.trim() || "Agent returned no structured data.",
-      leadScore: 0,
-    };
+    return { enrichmentSummary: text.trim() || "Agent returned no structured data.", leadScore: 0 };
   }
-
-  try {
-    const parsed = JSON.parse(jsonMatch[0]);
-    return {
-      companySize: parsed.companySize ?? undefined,
-      industry: parsed.industry ?? undefined,
-      linkedInUrl: parsed.linkedInUrl ?? undefined,
-      twitterUrl: parsed.twitterUrl ?? undefined,
-      instagramUrl: parsed.instagramUrl ?? undefined,
-      leadScore: typeof parsed.leadScore === "number" ? parsed.leadScore : undefined,
-      qualificationNotes: parsed.qualificationNotes ?? undefined,
-      enrichmentSummary: parsed.enrichmentSummary ?? undefined,
-    };
-  } catch {
-    console.log(`[enrich] Failed to parse JSON from agent response`);
-    return { enrichmentSummary: text.trim(), leadScore: 0 };
-  }
+  return {
+    companySize: parsed.companySize as string ?? undefined,
+    industry: parsed.industry as string ?? undefined,
+    linkedInUrl: parsed.linkedInUrl as string ?? undefined,
+    twitterUrl: parsed.twitterUrl as string ?? undefined,
+    instagramUrl: parsed.instagramUrl as string ?? undefined,
+    leadScore: typeof parsed.leadScore === "number" ? parsed.leadScore : undefined,
+    qualificationNotes: parsed.qualificationNotes as string ?? undefined,
+    enrichmentSummary: parsed.enrichmentSummary as string ?? undefined,
+  };
 }
