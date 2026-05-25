@@ -14,6 +14,8 @@ Required output format (copy these exact key names):
   "linkedInUrl": "full URL or null",
   "twitterUrl": "full URL or null",
   "instagramUrl": "full URL or null",
+  "facebookUrl": "full URL or null",
+  "websiteUrl": "full URL or null",
   "leadScore": integer 1-100,
   "qualificationNotes": "2-3 sentences covering BANT: budget signals, authority level, need fit, and timeline/urgency indicators",
   "enrichmentSummary": "1-2 sentences max: company type, size, industry, and one notable signal for a sales call"
@@ -145,6 +147,8 @@ export function parseAgentResponse(text: string): EnrichmentResult {
     linkedInUrl: parsed.linkedInUrl as string ?? undefined,
     twitterUrl: parsed.twitterUrl as string ?? undefined,
     instagramUrl: parsed.instagramUrl as string ?? undefined,
+    facebookUrl: parsed.facebookUrl as string ?? undefined,
+    websiteUrl: parsed.websiteUrl as string ?? undefined,
     leadScore: typeof parsed.leadScore === "number" ? parsed.leadScore : undefined,
     qualificationNotes: parsed.qualificationNotes as string ?? undefined,
     enrichmentSummary: parsed.enrichmentSummary as string ?? undefined,

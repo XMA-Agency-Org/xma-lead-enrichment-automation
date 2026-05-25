@@ -59,6 +59,8 @@ export interface EnrichmentResult {
   linkedInUrl?: string;
   twitterUrl?: string;
   instagramUrl?: string;
+  facebookUrl?: string;
+  websiteUrl?: string;
   leadScore?: number;
   qualificationNotes?: string;
   enrichmentSummary?: string;
@@ -77,6 +79,8 @@ const FIELD_IDS = {
   linkedInUrl: "1H1khVsKBEJL8I9UfDGu",
   twitterUrl: "2frMMLIVrT2vfslsjp2o",
   instagramUrl: "bGLi05U3XUSxLxHmBnD1",
+  facebookUrl: "",
+  websiteUrl: "seqqSTidxAFpOZq7JxqA",
   leadScore: "MLQ2av6LeYgdjUmLN2gI",
   qualificationNotes: "RcP4I0UAtOC2BN1d1jbZ",
   enrichmentSummary: "ofM65PVMv6RHMPSAGa1J",
@@ -130,7 +134,7 @@ async function validateFieldIds(locationId: string): Promise<void> {
   const fieldMap = await getFieldMap(locationId);
   const allIds = new Set(fieldMap.keys());
   const missing = Object.entries(FIELD_IDS)
-    .filter(([, id]) => !allIds.has(id))
+    .filter(([, id]) => id !== "" && !allIds.has(id))
     .map(([name, id]) => `${name}=${id}`);
 
   if (missing.length > 0) {
@@ -203,6 +207,8 @@ export async function updateContactFields(
   if (enrichment.linkedInUrl) customFields.push({ id: FIELD_IDS.linkedInUrl, field_value: enrichment.linkedInUrl });
   if (enrichment.twitterUrl) customFields.push({ id: FIELD_IDS.twitterUrl, field_value: enrichment.twitterUrl });
   if (enrichment.instagramUrl) customFields.push({ id: FIELD_IDS.instagramUrl, field_value: enrichment.instagramUrl });
+  if (enrichment.facebookUrl && FIELD_IDS.facebookUrl) customFields.push({ id: FIELD_IDS.facebookUrl, field_value: enrichment.facebookUrl });
+  if (enrichment.websiteUrl && FIELD_IDS.websiteUrl) customFields.push({ id: FIELD_IDS.websiteUrl, field_value: enrichment.websiteUrl });
   if (enrichment.leadScore !== undefined) customFields.push({ id: FIELD_IDS.leadScore, field_value: enrichment.leadScore.toString() });
   if (enrichment.qualificationNotes) customFields.push({ id: FIELD_IDS.qualificationNotes, field_value: enrichment.qualificationNotes });
   if (enrichment.enrichmentSummary) customFields.push({ id: FIELD_IDS.enrichmentSummary, field_value: enrichment.enrichmentSummary });
@@ -264,6 +270,8 @@ function buildNoteHtml(enrichment: EnrichmentResult): string {
     enrichment.linkedInUrl ? `<tr><td style="padding:4px 8px;font-weight:600;color:#1e40af;">LinkedIn</td><td style="padding:4px 8px;"><a href="${enrichment.linkedInUrl}">${enrichment.linkedInUrl}</a></td></tr>` : "",
     enrichment.twitterUrl ? `<tr><td style="padding:4px 8px;font-weight:600;color:#1e40af;">Twitter/X</td><td style="padding:4px 8px;"><a href="${enrichment.twitterUrl}">${enrichment.twitterUrl}</a></td></tr>` : "",
     enrichment.instagramUrl ? `<tr><td style="padding:4px 8px;font-weight:600;color:#1e40af;">Instagram</td><td style="padding:4px 8px;"><a href="${enrichment.instagramUrl}">${enrichment.instagramUrl}</a></td></tr>` : "",
+    enrichment.facebookUrl ? `<tr><td style="padding:4px 8px;font-weight:600;color:#1e40af;">Facebook</td><td style="padding:4px 8px;"><a href="${enrichment.facebookUrl}">${enrichment.facebookUrl}</a></td></tr>` : "",
+    enrichment.websiteUrl ? `<tr><td style="padding:4px 8px;font-weight:600;color:#1e40af;">Website</td><td style="padding:4px 8px;"><a href="${enrichment.websiteUrl}">${enrichment.websiteUrl}</a></td></tr>` : "",
   ].filter(Boolean).join("");
 
   return `

@@ -43,7 +43,8 @@ GHL Webhook → POST /api/webhook/ghl
 2. Create webhook: GHL → Settings → Integrations → Webhooks → Add Webhook
    - URL: `https://your-app.vercel.app/api/webhook/ghl`
    - Events: Contact Created, Contact Updated
-3. Create custom fields on contacts: company_size, industry, linkedin_url, twitter_url, instagram_url, lead_score, qualification_notes, enrichment_summary
+3. Create custom fields on contacts: company_size, industry, linkedin_url, twitter_url, instagram_url, facebook_url, website_url, lead_score, qualification_notes, enrichment_summary
+   - `facebook_url` and `website_url` are new — after creating them in GHL, fill in their IDs in `FIELD_IDS` in `lib/ghl.ts`
 
 
 ## Vercel Deployment

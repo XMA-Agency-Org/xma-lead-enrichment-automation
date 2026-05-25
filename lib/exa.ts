@@ -108,7 +108,7 @@ export async function executeSearches(queries: ExaQueries): Promise<Pick<ExaRese
       ? exa.search(queries.social, {
           type: "auto",
           numResults: 5,
-          includeDomains: ["instagram.com", "twitter.com", "x.com", "facebook.com"],
+          includeDomains: ["instagram.com", "twitter.com", "x.com", "facebook.com", "linkedin.com"],
           contents: { highlights: true },
         }).catch((err) => {
           console.error("[exa] Social search failed:", err.message);
@@ -190,6 +190,9 @@ function extractSocialProfileUrl(url: string): string | undefined {
     const segments = u.pathname.split("/").filter(Boolean);
     if ((host === "instagram.com" || host === "x.com" || host === "twitter.com" || host === "facebook.com") && segments.length >= 1) {
       return `https://${host}/${segments[0]}`;
+    }
+    if (host === "linkedin.com" && segments.length >= 2 && (segments[0] === "in" || segments[0] === "company")) {
+      return `https://linkedin.com/${segments[0]}/${segments[1]}`;
     }
   } catch {}
   return undefined;
